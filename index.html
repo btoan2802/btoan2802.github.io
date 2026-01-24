@@ -36,8 +36,6 @@
 </head>
 
 <body>
-</div>
-  </div>
   <div class="wrap">
     <header class="topbar">
       <div class="topbar__left">
@@ -48,31 +46,58 @@
         </div>
       </div>
 
-      <div class="topbar__center">
-        <button id="clear" class="clear-top" type="button" aria-label="xoá lịch sử">
-          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v10h-2V9zm4 0h2v10h-2V9zM7 9h2v10H7V9z"/></svg>
-          <span>xoá</span>
-        </button>
+      <div class="topbar__right">
+        <div class="topbar__actions">
+          <button id="clear" class="clear-top" type="button" aria-label="xoá lịch sử">
+            <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v10h-2V9zm4 0h2v10h-2V9zM7 9h2v10H7V9z"/></svg>
+            <span>xoá</span>
+          </button>
+        </div>
       </div>
     
       <button id="scrollBottom" class="scroll-bottom" type="button" aria-label="xuống cuối">
         <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 12l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
     </header>
- <div class="container">
- <div class="row p-0 m-0">
-   
-    <div id="chat" class="chat"></div>
+    <main id="chat" class="chat" aria-label="hộp thoại"></main>
     <div id="status" class="status" style="display:none;"></div>
 
-    <div id="composer" class="bar inputbar">
-  <input id="file" type="file"
-    accept="image/*,.txt,.md,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    <div id="composer" class="bar inputbar" aria-label="thanh nhập">
+      <div class="composer-inner">
+  <input id="fileImg" type="file" accept="image/*" multiple hidden />
+  <input id="fileDoc" type="file"
+    accept=".txt,.md,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     multiple hidden />
 
-  <button id="attach" class="iconbtn" type="button" aria-label="Đính kèm">📎</button>
-  <button id="mic" class="iconbtn" type="button" aria-label="Nói">🎤</button>
-  <button id="tts" class="iconbtn" type="button" aria-label="Đọc câu trả lời">🔊</button>
+  <div class="dropdown">
+    <button id="plus" class="iconbtn" type="button" aria-label="gửi ảnh hoặc file" data-bs-toggle="dropdown" aria-expanded="false">
+      <svg class="ico" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </button>
+    <ul class="dropdown-menu">
+      <li>
+        <button id="pickImage" class="dropdown-item" type="button">
+          <svg class="menu-ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11A2.5 2.5 0 0 1 17.5 20h-11A2.5 2.5 0 0 1 4 17.5v-11Z" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M8.5 11.2 6 14.2V17.5c0 .55.45 1 1 1h10c.55 0 1-.45 1-1v-2.1l-3.1-3.6a1 1 0 0 0-1.5-.02l-2.1 2.4-1.4-1.7a1 1 0 0 0-1.5-.03Z" fill="currentColor" opacity=".25"/>
+            <path d="M9 9a1.2 1.2 0 1 0 0-2.4A1.2 1.2 0 0 0 9 9Z" fill="currentColor"/>
+          </svg>
+          <span>gửi ảnh</span>
+        </button>
+      </li>
+      <li>
+        <button id="pickFile" class="dropdown-item" type="button">
+          <svg class="menu-ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7 3h7l3 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M14 3v4a1 1 0 0 0 1 1h4" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M8 12h8M8 16h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+          <span>gửi tệp</span>
+        </button>
+      </li>
+    </ul>
+  </div>
 
   <div class="textwrap inputwrap">
     <textarea id="msg" rows="1" placeholder="nhập tin nhắn... (shift+enter để xuống dòng)" autocomplete="off"></textarea>
@@ -80,10 +105,9 @@
   </div>
 
   <button id="send" class="sendbtn" type="button">gửi</button>
-</div>
+      </div>
+    </div>
 
-</div>
-   </div>
     <div class="hint">
       <p style="text-align: center; font-size: 12px">© AI được thành lập bởi Dev Nguyễn Bảo Toàn</p>
     </div>

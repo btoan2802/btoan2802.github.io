@@ -12,6 +12,7 @@ const OWNER_NAME = "Nguyễn Bảo Toàn";
 const SYSTEM_INSTRUCTION =
   `Mày là ${BOT_NAME}. ` +
   `Tự nhận biết ngôn ngữ của người dùng và trả lời theo đúng ngôn ngữ đó. ` +
+  `Nếu người dùng đang nói tiếng Việt thì PHẢI trả lời hoàn toàn bằng tiếng Việt (không trộn tiếng Anh). ` +
   `Trình bày gọn gàng, dễ đọc. ` +
   `Công thức dùng LaTeX trong $...$ hoặc $$...$$. ` +
   `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
@@ -30,16 +31,23 @@ const sendBtn = document.getElementById("send");
 const clearBtn = document.getElementById("clear");
 const scrollBottomBtn = document.getElementById("scrollBottom");
 
-const fileEl = document.getElementById("file");
-const attachBtn = document.getElementById("attach");
-const micBtn = document.getElementById("mic");
-const ttsBtn = document.getElementById("tts");
+const fileImgEl = document.getElementById("fileImg");
+const fileDocEl = document.getElementById("fileDoc");
+const plusBtn = document.getElementById("plus");
+const pickImageBtn = document.getElementById("pickImage");
+const pickFileBtn = document.getElementById("pickFile");
 const attachmentsEl = document.getElementById("attachments");
 
 // ====== state ======
 let history = []; // Gemini contents[]
 let pending = []; // attachments: {kind:'image'|'text', name, mimeType, dataB64?, text?}
-let ttsEnabled = false;
+
+function updateScrollBottomVisibility(){
+  if (!chatEl || !scrollBottomBtn) return;
+  const remaining = chatEl.scrollHeight - chatEl.scrollTop - chatEl.clientHeight;
+  const show = remaining > 140; // còn xa cuối
+  scrollBottomBtn.classList.toggle("show", show);
+}
 
 // ====== utils ======
 function escapeHtml(s){
@@ -122,6 +130,7 @@ function addUserBubble(text){
   row.appendChild(bubble);
   chatEl.appendChild(row);
   chatEl.scrollTop = chatEl.scrollHeight;
+  updateScrollBottomVisibility();
 }
 
 function addBotBubble(rawText){
@@ -157,6 +166,7 @@ function addBotBubble(rawText){
   row.appendChild(bubble);
   chatEl.appendChild(row);
   chatEl.scrollTop = chatEl.scrollHeight;
+  updateScrollBottomVisibility();
 
   // highlight code
   if (window.hljs) {
@@ -169,9 +179,6 @@ function addBotBubble(rawText){
   if (window.MathJax?.typesetPromise) {
     window.MathJax.typesetPromise([bubble]).catch(() => {});
   }
-
-  // TTS speak
-  if (ttsEnabled) speak(rawText);
 }
 
 function renderAttachments(){
@@ -325,14 +332,28 @@ function clampText(s){
   return t.slice(0, MAX_TEXT_CHARS_PER_FILE) + "\n\n...(đã cắt bớt vì quá dài)";
 }
 
-attachBtn?.addEventListener("click", () => fileEl?.click());
-fileEl?.addEventListener("change", async () => {
-  const files = Array.from(fileEl.files || []);
-  if (!files.length) return;
+function openImagePicker(){
+  if (!fileImgEl) return;
+  fileImgEl.value = "";
+  fileImgEl.click();
+}
+
+function openFilePicker(){
+  if (!fileDocEl) return;
+  fileDocEl.value = "";
+  fileDocEl.click();
+}
+
+pickImageBtn?.addEventListener("click", openImagePicker);
+pickFileBtn?.addEventListener("click", openFilePicker);
+
+async function handleSelectedFiles(files){
+  const list = Array.from(files || []);
+  if (!list.length) return;
 
   showStatus("đang xử lý tệp…");
   try{
-    for (const f of files) {
+    for (const f of list) {
       const name = f.name || "file";
       const type = (f.type || "").toLowerCase();
 
@@ -377,9 +398,23 @@ fileEl?.addEventListener("change", async () => {
   }finally{
     hideStatus();
     renderAttachments();
-    fileEl.value = "";
     autoGrow();
   }
+
+  // close bootstrap dropdown (if open)
+  try{
+    const el = plusBtn;
+    const inst = el ? bootstrap.Dropdown.getInstance(el) : null;
+    inst?.hide();
+  }catch{}
+}
+
+fileImgEl?.addEventListener("change", async () => {
+  await handleSelectedFiles(fileImgEl.files);
+});
+
+fileDocEl?.addEventListener("change", async () => {
+  await handleSelectedFiles(fileDocEl.files);
 });
 
 // ====== Gemini call ======
@@ -467,8 +502,9 @@ async function send(){
   msgEl.value = "";
   autoGrow();
   sendBtn.disabled = true;
-  attachBtn.disabled = true;
-  micBtn.disabled = true;
+  plusBtn && (plusBtn.disabled = true);
+  pickImageBtn && (pickImageBtn.disabled = true);
+  pickFileBtn && (pickFileBtn.disabled = true);
 
   // typing indicator bubble (small)
   const typingRow = document.createElement("div");
@@ -490,8 +526,9 @@ async function send(){
     addBotBubble("lỗi: " + (e?.message || e));
   }finally{
     sendBtn.disabled = false;
-    attachBtn.disabled = false;
-    micBtn.disabled = false;
+    plusBtn && (plusBtn.disabled = false);
+    pickImageBtn && (pickImageBtn.disabled = false);
+    pickFileBtn && (pickFileBtn.disabled = false);
     msgEl.focus();
   }
 }
@@ -515,6 +552,11 @@ clearBtn?.addEventListener("click", () => {
 
 scrollBottomBtn?.addEventListener("click", () => {
   chatEl.scrollTop = chatEl.scrollHeight;
+  updateScrollBottomVisibility();
+});
+
+chatEl?.addEventListener("scroll", () => {
+  updateScrollBottomVisibility();
 });
 
 // ====== keyboard fix (Messenger webview) ======
@@ -564,112 +606,6 @@ msgEl?.addEventListener("blur", () => {
 
 syncKbd();
 autoGrow();
-
-// ====== voice (input + output) ======
-let recog = null;
-let recogActive = false;
-
-function initRecog(){
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) return null;
-  const r = new SR();
-  r.lang = "vi-VN";
-  r.interimResults = true;
-  r.continuous = false;
-  r.onresult = (ev) => {
-    let finalText = "";
-    let interim = "";
-    for (let i = ev.resultIndex; i < ev.results.length; i++){
-      const t = ev.results[i][0]?.transcript || "";
-      if (ev.results[i].isFinal) finalText += t;
-      else interim += t;
-    }
-    if (finalText) {
-      msgEl.value = (msgEl.value ? msgEl.value + " " : "") + finalText.trim();
-      autoGrow();
-    } else if (interim) {
-      showStatus("đang nghe… " + interim.trim());
-    }
-  };
-  r.onerror = () => { showStatus("mic lỗi / không hỗ trợ trong app này"); setTimeout(hideStatus, 1500); };
-  r.onend = () => {
-    recogActive = false;
-    micBtn?.classList.remove("active");
-    hideStatus();
-  };
-  return r;
-}
-
-micBtn?.addEventListener("click", () => {
-  if (!recog) recog = initRecog();
-  if (!recog) {
-    addBotBubble("trình duyệt/app này không hỗ trợ voice input 😅 (thử Chrome/Safari).");
-    return;
-  }
-  if (recogActive) {
-    try{ recog.stop(); }catch{}
-    recogActive = false;
-    micBtn.classList.remove("active");
-    hideStatus();
-    return;
-  }
-  try{
-    recogActive = true;
-    micBtn.classList.add("active");
-    showStatus("đang nghe…");
-    recog.start();
-  }catch{
-    recogActive = false;
-    micBtn.classList.remove("active");
-    addBotBubble("không bật mic được (app chặn).");
-  }
-});
-
-// TTS
-function unlockTTS(){
-  try{
-    const u = new SpeechSynthesisUtterance(" ");
-    u.volume = 0;
-    speechSynthesis.speak(u);
-  }catch{}
-}
-
-function pickVoice(){
-  const voices = speechSynthesis.getVoices?.() || [];
-  // ưu tiên vi-VN, nếu không có thì lấy voice mặc định
-  return voices.find(v => (v.lang||"").toLowerCase().includes("vi")) || voices[0] || null;
-}
-
-function speak(text){
-  try{
-    if (!("speechSynthesis" in window)) return;
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(String(text).slice(0, 800)); // tránh đọc quá dài
-    const v = pickVoice();
-    if (v) u.voice = v;
-    u.rate = 1;
-    u.pitch = 1;
-    u.onend = () => {};
-    speechSynthesis.speak(u);
-  }catch{
-    // webview có thể chặn audio
-    showStatus("app này chặn đọc tiếng 😅");
-    setTimeout(hideStatus, 1200);
-  }
-}
-
-ttsBtn?.addEventListener("click", () => {
-  ttsEnabled = !ttsEnabled;
-  ttsBtn.classList.toggle("active", ttsEnabled);
-  if (ttsEnabled) {
-    unlockTTS(); // required for some webviews
-    showStatus("đã bật đọc câu trả lời 🔊");
-  } else {
-    try{ speechSynthesis.cancel(); }catch{}
-    showStatus("đã tắt đọc 🔇");
-  }
-  setTimeout(hideStatus, 800);
-});
 
 // hello
 addBotBubble("chào bạn 😄 gửi ảnh/txt/docx/pdf hoặc nhắn thử một câu bất kỳ nha.");
