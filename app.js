@@ -1,0 +1,675 @@
+// ====== cấu hình ======
+const WORKER_URL = "https://gemini-proxy-vercel-roan.vercel.app/api/gemini"; // proxy của bạn
+const MODEL = "gemini-2.5-flash";
+const TEMPERATURE = 0.7;
+const MAX_OUTPUT_TOKENS = 5000;
+
+// Btoan AI / owner override
+const BOT_NAME = "Btoan AI";
+const OWNER_NAME = "Nguyễn Bảo Toàn";
+
+// system instruction (tự nhận biết ngôn ngữ + trình bày đẹp)
+const SYSTEM_INSTRUCTION =
+  `Mày là ${BOT_NAME}. ` +
+  `Tự nhận biết ngôn ngữ của người dùng và trả lời theo đúng ngôn ngữ đó. ` +
+  `Trình bày gọn gàng, dễ đọc. ` +
+  `Công thức dùng LaTeX trong $...$ hoặc $$...$$. ` +
+  `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
+
+// Giới hạn để tránh request quá nặng (đỡ Failed to fetch do payload)
+const MAX_INLINE_IMAGE_BYTES = 1.8 * 1024 * 1024; // ~1.8MB mỗi ảnh (base64 sẽ phình)
+const MAX_TEXT_CHARS_PER_FILE = 12000;
+const MAX_PDF_PAGES = 8;
+
+// ====== elements ======
+const chatEl = document.getElementById("chat");
+const statusEl = document.getElementById("status");
+const composerEl = document.getElementById("composer");
+const msgEl = document.getElementById("msg");
+const sendBtn = document.getElementById("send");
+const clearBtn = document.getElementById("clear");
+const scrollBottomBtn = document.getElementById("scrollBottom");
+
+const fileEl = document.getElementById("file");
+const attachBtn = document.getElementById("attach");
+const micBtn = document.getElementById("mic");
+const ttsBtn = document.getElementById("tts");
+const attachmentsEl = document.getElementById("attachments");
+
+// ====== state ======
+let history = []; // Gemini contents[]
+let pending = []; // attachments: {kind:'image'|'text', name, mimeType, dataB64?, text?}
+let ttsEnabled = false;
+
+// ====== utils ======
+function escapeHtml(s){
+  return String(s ?? "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
+}
+
+function showStatus(text){
+  if (!statusEl) return;
+  statusEl.style.display = "block";
+  statusEl.textContent = text;
+}
+function hideStatus(){
+  if (!statusEl) return;
+  statusEl.style.display = "none";
+  statusEl.textContent = "";
+}
+
+function autoGrow(){
+  if (!msgEl) return;
+  msgEl.style.height = "auto";
+  msgEl.style.height = Math.min(msgEl.scrollHeight, 160) + "px";
+  updateComposerHeight();
+}
+
+function renderPrettyText(raw){
+  // render markdown-lite + code blocks + keep latex for MathJax
+  let s = String(raw ?? "").replace(/\r\n/g, "\n");
+
+  // code fences ```lang\n...\n```
+  s = s.replace(/```([\w+-]*)\n([\s\S]*?)```/g, (_m, lang, code) => {
+    const safe = escapeHtml(code);
+    const l = (lang || "").trim();
+    const cls = l ? `language-${l}` : "";
+    return `<pre><code class="${cls}">${safe}</code></pre>`;
+  });
+
+  // inline code `...`
+  s = s.replace(/`([^`]+)`/g, (_m, code) => `<code>${escapeHtml(code)}</code>`);
+
+  // bullet from "* "
+  s = s.replace(/(^|\n)\s*\*\s+/g, "$1• ");
+
+  // bold **...**
+  s = s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
+
+  // newlines
+  s = escapeHtml(s).replaceAll("&lt;pre&gt;","<pre>").replaceAll("&lt;/pre&gt;","</pre>")
+                   .replaceAll("&lt;code","<code").replaceAll("/code&gt;","/code>")
+                   .replaceAll("&lt;b&gt;","<b>").replaceAll("&lt;/b&gt;","</b>");
+  s = s.replace(/\n/g, "<br>");
+  return s;
+}
+
+async function copyText(text){
+  try{
+    await navigator.clipboard.writeText(text);
+    return true;
+  }catch{
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  }
+}
+
+function addUserBubble(text){
+  const row = document.createElement("div");
+  row.className = "msgrow me";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+  bubble.textContent = text;
+  row.appendChild(bubble);
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function addBotBubble(rawText){
+  const row = document.createElement("div");
+  row.className = "msgrow bot";
+
+  const bubble = document.createElement("div");
+  bubble.className = "bubble";
+
+  // copy button (icon only)
+  const btn = document.createElement("button");
+  btn.className = "copy-btn";
+  btn.type = "button";
+  btn.title = "sao chép";
+  btn.innerHTML = `
+    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" stroke-width="2"/>
+      <rect x="4" y="4" width="11" height="11" rx="2" stroke="currentColor" stroke-width="2"/>
+    </svg>
+  `;
+  btn.addEventListener("click", async () => {
+    const ok = await copyText(rawText);
+    btn.style.opacity = ok ? "0.6" : "1";
+    setTimeout(() => (btn.style.opacity = "1"), 600);
+  });
+
+  const content = document.createElement("div");
+  content.className = "botcontent";
+  content.innerHTML = renderPrettyText(rawText);
+
+  bubble.appendChild(btn);
+  bubble.appendChild(content);
+  row.appendChild(bubble);
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  // highlight code
+  if (window.hljs) {
+    bubble.querySelectorAll("pre code").forEach((el) => {
+      try { window.hljs.highlightElement(el); } catch {}
+    });
+  }
+
+  // MathJax typeset
+  if (window.MathJax?.typesetPromise) {
+    window.MathJax.typesetPromise([bubble]).catch(() => {});
+  }
+
+  // TTS speak
+  if (ttsEnabled) speak(rawText);
+}
+
+function renderAttachments(){
+  if (!attachmentsEl) return;
+  attachmentsEl.innerHTML = "";
+  for (const item of pending) {
+    const chip = document.createElement("div");
+    chip.className = "atchip";
+    chip.title = item.name;
+    chip.textContent = item.kind === "image" ? `🖼️ ${item.name}` : `📄 ${item.name}`;
+    attachmentsEl.appendChild(chip);
+  }
+}
+
+function resetAttachments(){
+  pending = [];
+  renderAttachments();
+}
+
+// ====== owner override detection ======
+function vnNoAccent(str = "") {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
+const ABOUT_OWNER_REGEX = new RegExp(
+  [
+    "\\b(ai)\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu|quan\\s*ly)\\b",
+    "\\bnguoi\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu)\\b",
+    "\\bchu\\s*(cua)?\\s*(may|ban|bot|ai)\\b",
+    "\\bowner\\b",
+    "\\bcreator\\b",
+    "\\bmade\\s*by\\b",
+    "\\bwho\\s*(made|created|built|developed)\\b",
+    "\\bai\\s*lam\\s*ra\\b",
+    "\\bai\\s*tao\\s*ra\\b",
+    "\\bai\\s*lap\\s*trinh\\b"
+  ].join("|"),
+  "i"
+);
+function isAboutOwner(userText) {
+  const check = vnNoAccent((userText || "").toLowerCase());
+  return ABOUT_OWNER_REGEX.test(check);
+}
+function ownerAnswer() {
+  return `Mình tên là ${BOT_NAME}. Người tạo/lập trình/chủ của mình là ${OWNER_NAME}.`;
+}
+
+// ====== web search (auto when user asks) ======
+function wantWebSearch(text){
+  const t = vnNoAccent(String(text||"").toLowerCase()).trim();
+  if (t.startsWith("/web ")) return true;
+  return /(tim tren mang|tra cuu|search tren mang|search google|search|google|web)/i.test(t)
+    && /(tim|tra|search|google|web)/i.test(t);
+}
+
+function extractWebQuery(text){
+  const raw = String(text||"").trim();
+  if (raw.toLowerCase().startsWith("/web ")) return raw.slice(5).trim();
+  // remove common prefixes
+  return raw
+    .replace(/^(tìm trên mạng|tim tren mang|tra cứu|tra cuu|search|google|web)\s*[:\-]?\s*/i, "")
+    .trim();
+}
+
+async function webSearch(query){
+  const q = query.trim();
+  if (!q) return [];
+  // dùng r.jina.ai để vượt CORS, fetch HTML của DuckDuckGo
+  const url = "https://r.jina.ai/http://duckduckgo.com/html/?q=" + encodeURIComponent(q);
+  const res = await fetch(url, { cache: "no-store" });
+  const txt = await res.text();
+
+  // parse basic results: <a rel="nofollow" class="result__a" href="...">title</a>
+  const results = [];
+  const reA = /class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)<\/a>/g;
+  let m;
+  while ((m = reA.exec(txt)) && results.length < 5) {
+    const href = m[1];
+    const title = m[2].replace(/<.*?>/g, "").trim();
+    results.push({ title, url: href });
+  }
+  return results;
+}
+
+function webResultsToContext(results){
+  if (!results?.length) return "";
+  let s = "Kết quả tìm kiếm nhanh (DuckDuckGo):\n";
+  results.forEach((r, i) => {
+    s += `${i+1}) ${r.title}\n   ${r.url}\n`;
+  });
+  return s.trim();
+}
+
+// ====== file handling ======
+function fileToDataURL(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function fileToText(file){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = reject;
+    r.readAsText(file);
+  });
+}
+
+async function parseDocx(file){
+  if (!window.mammoth) throw new Error("thiếu mammoth.js");
+  const arrayBuffer = await file.arrayBuffer();
+  const result = await window.mammoth.extractRawText({ arrayBuffer });
+  return String(result?.value || "").trim();
+}
+
+async function parsePdf(file){
+  if (!window.pdfjsLib) throw new Error("thiếu pdf.js");
+  // set worker
+  try {
+    if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.worker.min.js";
+    }
+  } catch {}
+
+  const ab = await file.arrayBuffer();
+  const pdf = await window.pdfjsLib.getDocument({ data: ab }).promise;
+  const maxPages = Math.min(pdf.numPages, MAX_PDF_PAGES);
+
+  let out = "";
+  for (let p = 1; p <= maxPages; p++) {
+    const page = await pdf.getPage(p);
+    const content = await page.getTextContent();
+    const strings = content.items.map(it => it.str).filter(Boolean);
+    const pageText = strings.join(" ").replace(/\s+/g, " ").trim();
+    if (pageText) out += `\n\n[Trang ${p}]\n` + pageText;
+    if (out.length > MAX_TEXT_CHARS_PER_FILE) break;
+  }
+  return out.trim();
+}
+
+function clampText(s){
+  const t = String(s || "");
+  if (t.length <= MAX_TEXT_CHARS_PER_FILE) return t;
+  return t.slice(0, MAX_TEXT_CHARS_PER_FILE) + "\n\n...(đã cắt bớt vì quá dài)";
+}
+
+attachBtn?.addEventListener("click", () => fileEl?.click());
+fileEl?.addEventListener("change", async () => {
+  const files = Array.from(fileEl.files || []);
+  if (!files.length) return;
+
+  showStatus("đang xử lý tệp…");
+  try{
+    for (const f of files) {
+      const name = f.name || "file";
+      const type = (f.type || "").toLowerCase();
+
+      // images
+      if (type.startsWith("image/")) {
+        if (f.size > MAX_INLINE_IMAGE_BYTES) {
+          addBotBubble(`ảnh "${name}" quá nặng. Hãy chọn ảnh nhỏ hơn (~<2MB).`);
+          continue;
+        }
+        const dataUrl = await fileToDataURL(f);
+        const comma = dataUrl.indexOf(",");
+        const b64 = comma >= 0 ? dataUrl.slice(comma+1) : dataUrl;
+        pending.push({ kind: "image", name, mimeType: type || "image/png", dataB64: b64 });
+        continue;
+      }
+
+      // txt-like
+      if (type === "text/plain" || type === "application/json" || name.match(/\.(txt|md|csv|json)$/i)) {
+        const txt = await fileToText(f);
+        pending.push({ kind: "text", name, mimeType: type || "text/plain", text: clampText(txt) });
+        continue;
+      }
+
+      // docx
+      if (type.includes("officedocument.wordprocessingml.document") || name.match(/\.docx$/i)) {
+        const txt = clampText(await parseDocx(f));
+        pending.push({ kind: "text", name, mimeType: type || "application/vnd.openxmlformats-officedocument.wordprocessingml.document", text: txt });
+        continue;
+      }
+
+      // pdf
+      if (type === "application/pdf" || name.match(/\.pdf$/i)) {
+        const txt = clampText(await parsePdf(f));
+        pending.push({ kind: "text", name, mimeType: type || "application/pdf", text: txt });
+        continue;
+      }
+
+      addBotBubble(`tệp "${name}" chưa hỗ trợ. Hãy gửi ảnh/txt/docx/pdf.`);
+    }
+  }catch(e){
+    addBotBubble("lỗi xử lý tệp: " + (e?.message || e));
+  }finally{
+    hideStatus();
+    renderAttachments();
+    fileEl.value = "";
+    autoGrow();
+  }
+});
+
+// ====== Gemini call ======
+async function callGemini(userText){
+  // owner override: không cần gọi API
+  if (isAboutOwner(userText)) {
+    const reply = ownerAnswer();
+    history.push({ role: "user", parts: [{ text: userText }] });
+    history.push({ role: "model", parts: [{ text: reply }] });
+    if (history.length > 20) history = history.slice(-20);
+    return reply;
+  }
+
+  // web search if asked
+  let webContext = "";
+  if (wantWebSearch(userText)) {
+    const q = extractWebQuery(userText) || userText;
+    showStatus("đang tìm trên mạng…");
+    try{
+      const results = await webSearch(q);
+      webContext = webResultsToContext(results);
+    }catch{
+      webContext = "";
+    }finally{
+      hideStatus();
+    }
+  }
+
+  const parts = [];
+  if (webContext) {
+    parts.push({ text: webContext + "\n\nDựa trên kết quả trên, hãy trả lời yêu cầu của mình:" });
+  }
+  parts.push({ text: userText });
+
+  // add attachments
+  for (const item of pending) {
+    if (item.kind === "image") {
+      parts.push({ inlineData: { mimeType: item.mimeType, data: item.dataB64 } });
+    } else {
+      parts.push({ text: `\n\n[Nội dung tệp: ${item.name}]\n` + item.text });
+    }
+  }
+
+  const payload = {
+    contents: [...history, { role: "user", parts }],
+    generationConfig: { temperature: TEMPERATURE, maxOutputTokens: MAX_OUTPUT_TOKENS },
+    systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
+  };
+
+  const res = await fetch(WORKER_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    mode: "cors",
+    cache: "no-store",
+    referrerPolicy: "no-referrer",
+    body: JSON.stringify({ model: MODEL, payload })
+  });
+
+  const raw = await res.text();
+  let data;
+  try { data = JSON.parse(raw); } catch { data = { raw }; }
+
+  if (!res.ok) {
+    const msg = data?.error?.message || data?.raw || ("http " + res.status);
+    throw new Error(msg);
+  }
+
+  const respParts = data?.candidates?.[0]?.content?.parts || [];
+  const reply = respParts.map(p => p.text).filter(Boolean).join("\n").trim();
+  if (!reply) return "mình chưa nhận được câu trả lời 😅";
+
+  history.push({ role: "user", parts });
+  history.push({ role: "model", parts: [{ text: reply }] });
+  if (history.length > 20) history = history.slice(-20);
+
+  return reply;
+}
+
+// ====== send flow ======
+async function send(){
+  const userText = msgEl.value.trim();
+  if (!userText && pending.length === 0) return;
+
+  addUserBubble(userText || "(đính kèm tệp)");
+  msgEl.value = "";
+  autoGrow();
+  sendBtn.disabled = true;
+  attachBtn.disabled = true;
+  micBtn.disabled = true;
+
+  // typing indicator bubble (small)
+  const typingRow = document.createElement("div");
+  typingRow.className = "msgrow bot";
+  const typingBubble = document.createElement("div");
+  typingBubble.className = "bubble";
+  typingBubble.innerHTML = `<div style="opacity:.75">đang trả lời…</div>`;
+  typingRow.appendChild(typingBubble);
+  chatEl.appendChild(typingRow);
+  chatEl.scrollTop = chatEl.scrollHeight;
+
+  try{
+    const reply = await callGemini(userText);
+    typingRow.remove();
+    addBotBubble(reply);
+    resetAttachments();
+  }catch(e){
+    typingRow.remove();
+    addBotBubble("lỗi: " + (e?.message || e));
+  }finally{
+    sendBtn.disabled = false;
+    attachBtn.disabled = false;
+    micBtn.disabled = false;
+    msgEl.focus();
+  }
+}
+
+sendBtn?.addEventListener("click", send);
+msgEl?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    send();
+  }
+});
+msgEl?.addEventListener("input", autoGrow);
+
+clearBtn?.addEventListener("click", () => {
+  history = [];
+  chatEl.innerHTML = "";
+  resetAttachments();
+  addBotBubble("đã xoá lịch sử.");
+  msgEl.focus();
+});
+
+scrollBottomBtn?.addEventListener("click", () => {
+  chatEl.scrollTop = chatEl.scrollHeight;
+});
+
+// ====== keyboard fix (Messenger webview) ======
+function setCssVar(name, value){
+  document.documentElement.style.setProperty(name, value);
+}
+
+function updateComposerHeight(){
+  if (!composerEl) return;
+  const h = composerEl.getBoundingClientRect().height || 56;
+  setCssVar("--composer-h", Math.round(h) + "px");
+}
+
+let baseInnerH = window.innerHeight;
+
+function updateKeyboardOffset(){
+  const vv = window.visualViewport;
+  if (vv && Number.isFinite(vv.height)) {
+    const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    setCssVar("--kbd-offset", Math.round(offset) + "px");
+    return;
+  }
+  // fallback: some webviews change innerHeight
+  const delta = Math.max(0, baseInnerH - window.innerHeight);
+  setCssVar("--kbd-offset", Math.round(delta) + "px");
+}
+
+function syncKbd(){
+  updateComposerHeight();
+  updateKeyboardOffset();
+}
+
+window.addEventListener("resize", syncKbd);
+if (window.visualViewport){
+  window.visualViewport.addEventListener("resize", syncKbd);
+  window.visualViewport.addEventListener("scroll", syncKbd);
+}
+
+msgEl?.addEventListener("focus", () => {
+  baseInnerH = window.innerHeight;
+  syncKbd();
+  setTimeout(() => { syncKbd(); chatEl.scrollTop = chatEl.scrollHeight; }, 80);
+});
+msgEl?.addEventListener("blur", () => {
+  setTimeout(() => { setCssVar("--kbd-offset", "0px"); syncKbd(); }, 80);
+});
+
+syncKbd();
+autoGrow();
+
+// ====== voice (input + output) ======
+let recog = null;
+let recogActive = false;
+
+function initRecog(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  const r = new SR();
+  r.lang = "vi-VN";
+  r.interimResults = true;
+  r.continuous = false;
+  r.onresult = (ev) => {
+    let finalText = "";
+    let interim = "";
+    for (let i = ev.resultIndex; i < ev.results.length; i++){
+      const t = ev.results[i][0]?.transcript || "";
+      if (ev.results[i].isFinal) finalText += t;
+      else interim += t;
+    }
+    if (finalText) {
+      msgEl.value = (msgEl.value ? msgEl.value + " " : "") + finalText.trim();
+      autoGrow();
+    } else if (interim) {
+      showStatus("đang nghe… " + interim.trim());
+    }
+  };
+  r.onerror = () => { showStatus("mic lỗi / không hỗ trợ trong app này"); setTimeout(hideStatus, 1500); };
+  r.onend = () => {
+    recogActive = false;
+    micBtn?.classList.remove("active");
+    hideStatus();
+  };
+  return r;
+}
+
+micBtn?.addEventListener("click", () => {
+  if (!recog) recog = initRecog();
+  if (!recog) {
+    addBotBubble("trình duyệt/app này không hỗ trợ voice input 😅 (thử Chrome/Safari).");
+    return;
+  }
+  if (recogActive) {
+    try{ recog.stop(); }catch{}
+    recogActive = false;
+    micBtn.classList.remove("active");
+    hideStatus();
+    return;
+  }
+  try{
+    recogActive = true;
+    micBtn.classList.add("active");
+    showStatus("đang nghe…");
+    recog.start();
+  }catch{
+    recogActive = false;
+    micBtn.classList.remove("active");
+    addBotBubble("không bật mic được (app chặn).");
+  }
+});
+
+// TTS
+function unlockTTS(){
+  try{
+    const u = new SpeechSynthesisUtterance(" ");
+    u.volume = 0;
+    speechSynthesis.speak(u);
+  }catch{}
+}
+
+function pickVoice(){
+  const voices = speechSynthesis.getVoices?.() || [];
+  // ưu tiên vi-VN, nếu không có thì lấy voice mặc định
+  return voices.find(v => (v.lang||"").toLowerCase().includes("vi")) || voices[0] || null;
+}
+
+function speak(text){
+  try{
+    if (!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(String(text).slice(0, 800)); // tránh đọc quá dài
+    const v = pickVoice();
+    if (v) u.voice = v;
+    u.rate = 1;
+    u.pitch = 1;
+    u.onend = () => {};
+    speechSynthesis.speak(u);
+  }catch{
+    // webview có thể chặn audio
+    showStatus("app này chặn đọc tiếng 😅");
+    setTimeout(hideStatus, 1200);
+  }
+}
+
+ttsBtn?.addEventListener("click", () => {
+  ttsEnabled = !ttsEnabled;
+  ttsBtn.classList.toggle("active", ttsEnabled);
+  if (ttsEnabled) {
+    unlockTTS(); // required for some webviews
+    showStatus("đã bật đọc câu trả lời 🔊");
+  } else {
+    try{ speechSynthesis.cancel(); }catch{}
+    showStatus("đã tắt đọc 🔇");
+  }
+  setTimeout(hideStatus, 800);
+});
+
+// hello
+addBotBubble("chào bạn 😄 gửi ảnh/txt/docx/pdf hoặc nhắn thử một câu bất kỳ nha.");

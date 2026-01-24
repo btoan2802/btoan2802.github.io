@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Btoan AI</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <link rel="stylesheet" href="./style.css" />
+
+  <!-- MathJax config -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$']],
+        displayMath: [['$$', '$$']],
+        processEscapes: true
+      },
+      options: { skipHtmlTags: ['script','noscript','style','textarea','pre','code'] }
+    };
+  </script>
+  <script defer src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js"></script>
+
+  <!-- syntax highlight for code blocks -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+
+
+  <!-- code highlight -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
+  <!-- docx/pdf parsers -->
+  <script defer src="https://unpkg.com/mammoth/mammoth.browser.min.js"></script>
+  <script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.8.69/pdf.min.js"></script>
+
+</head>
+
+<body>
+</div>
+  </div>
+  <div class="wrap">
+    <header class="topbar">
+      <div class="topbar__left">
+        <div class="topbar__avatar">T</div>
+        <div>
+          <div class="topbar__title">Btoan AI</div>
+          <div class="topbar__sub"><span class="dot"></span>đang hoạt động</div>
+        </div>
+      </div>
+
+      <div class="topbar__center">
+        <button id="clear" class="clear-top" type="button" aria-label="xoá lịch sử">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h5v2H3V5h5l1-2zm1 6h2v10h-2V9zm4 0h2v10h-2V9zM7 9h2v10H7V9z"/></svg>
+          <span>xoá</span>
+        </button>
+      </div>
+    
+      <button id="scrollBottom" class="scroll-bottom" type="button" aria-label="xuống cuối">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 5v12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M7 12l5 5 5-5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </header>
+ <div class="container">
+ <div class="row p-0 m-0">
+   
+    <div id="chat" class="chat"></div>
+    <div id="status" class="status" style="display:none;"></div>
+
+    <div id="composer" class="bar inputbar">
+  <input id="file" type="file"
+    accept="image/*,.txt,.md,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    multiple hidden />
+
+  <button id="attach" class="iconbtn" type="button" aria-label="Đính kèm">📎</button>
+  <button id="mic" class="iconbtn" type="button" aria-label="Nói">🎤</button>
+  <button id="tts" class="iconbtn" type="button" aria-label="Đọc câu trả lời">🔊</button>
+
+  <div class="textwrap inputwrap">
+    <textarea id="msg" rows="1" placeholder="nhập tin nhắn... (shift+enter để xuống dòng)" autocomplete="off"></textarea>
+    <div id="attachments" class="attachments" aria-live="polite"></div>
+  </div>
+
+  <button id="send" class="sendbtn" type="button">gửi</button>
+</div>
+
+</div>
+   </div>
+    <div class="hint">
+      <p style="text-align: center; font-size: 12px">© AI được thành lập bởi Dev Nguyễn Bảo Toàn</p>
+    </div>
+  </div>
+  <a class="home-btn" href="../index.html" aria-label="Về trang chủ">🏠</a>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
