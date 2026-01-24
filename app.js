@@ -12,7 +12,8 @@ const OWNER_NAME = "Nguyễn Bảo Toàn";
 const SYSTEM_INSTRUCTION =
   `Mày là ${BOT_NAME}. ` +
   `Tự nhận biết ngôn ngữ của người dùng và trả lời theo đúng ngôn ngữ đó. ` +
-  `Nếu người dùng đang nói tiếng Việt thì PHẢI trả lời hoàn toàn bằng tiếng Việt (không trộn tiếng Anh). ` +
+  `Nếu người dùng xưng hô mày tao thì phải xưng theo như vậy ` +
+  `Xưng hô theo tính cách người dùng, nếu người dùng nói chuyện láo, thì mày cũng nói chuyện láo y chang ` +
   `Trình bày gọn gàng, dễ đọc. ` +
   `Công thức dùng LaTeX trong $...$ hoặc $$...$$. ` +
   `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
@@ -608,4 +609,4 @@ syncKbd();
 autoGrow();
 
 // hello
-addBotBubble("chào bạn 😄 gửi ảnh/txt/docx/pdf hoặc nhắn thử một câu bất kỳ nha.");
+addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn");
