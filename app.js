@@ -274,36 +274,6 @@ function resetAttachments(){
   renderAttachments();
 }
 
-// ====== owner override detection ======
-function vnNoAccent(str = "") {
-  return str
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/đ/g, "d")
-    .replace(/Đ/g, "D");
-}
-const ABOUT_OWNER_REGEX = new RegExp(
-  [
-    "\\b(ai)\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu|quan\\s*ly)\\b",
-    "\\bnguoi\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu)\\b",
-    "\\bchu\\s*(cua)?\\s*(may|ban|bot|ai)\\b",
-    "\\bowner\\b",
-    "\\bcreator\\b",
-    "\\bmade\\s*by\\b",
-    "\\bwho\\s*(made|created|built|developed)\\b",
-    "\\bai\\s*lam\\s*ra\\b",
-    "\\bai\\s*tao\\s*ra\\b",
-    "\\bai\\s*lap\\s*trinh\\b"
-  ].join("|"),
-  "i"
-);
-function isAboutOwner(userText) {
-  const check = vnNoAccent((userText || "").toLowerCase());
-  return ABOUT_OWNER_REGEX.test(check);
-}
-function ownerAnswer() {
-  return `Mình tên là ${BOT_NAME}. Người tạo/lập trình/chủ của mình là ${OWNER_NAME}.`;
-}
 
 // ====== web search (auto when user asks) ======
 function wantWebSearch(text){
@@ -507,15 +477,7 @@ fileDocEl?.addEventListener("change", async () => {
 });
 // ====== Gemini call ======
 async function callGemini(userText, attachments = []){
-  // owner override: không cần gọi API
-  if (isAboutOwner(userText)) {
-    const reply = ownerAnswer();
-    history.push({ role: "user", parts: [{ text: userText }] });
-    history.push({ role: "model", parts: [{ text: reply }] });
-    if (history.length > 20) history = history.slice(-20);
-    return reply;
-  }
-
+ 
   // web search if asked
   let webContext = "";
   if (wantWebSearch(userText)) {
