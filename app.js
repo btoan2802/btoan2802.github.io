@@ -477,7 +477,7 @@ fileDocEl?.addEventListener("change", async () => {
 });
 // ====== Gemini call ======
 async function callGemini(userText, attachments = []){
- 
+
   // web search if asked
   let webContext = "";
   if (wantWebSearch(userText)) {

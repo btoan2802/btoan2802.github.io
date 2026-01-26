@@ -65,6 +65,8 @@
     <div id="composer" class="bar inputbar" aria-label="thanh nhập">
       <div class="composer-inner">
   <input id="fileImg" type="file" accept="image/*" multiple hidden />
+  <!-- camera capture (trên mobile sẽ mở camera; desktop sẽ mở chọn ảnh như bình thường) -->
+  <input id="fileCam" type="file" accept="image/*" capture="environment" hidden />
   <input id="fileDoc" type="file"
     accept=".txt,.md,.csv,.json,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     multiple hidden />
@@ -84,6 +86,16 @@
             <path d="M9 9a1.2 1.2 0 1 0 0-2.4A1.2 1.2 0 0 0 9 9Z" fill="currentColor"/>
           </svg>
           <span>gửi ảnh</span>
+        </button>
+      </li>
+      <li>
+        <button id="pickCamera" class="dropdown-item" type="button">
+          <svg class="menu-ico" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7.5 7.5 9 5.5h6l1.5 2H19a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5a2 2 0 0 1 2-2h2.5Z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+            <path d="M12 17a3.2 3.2 0 1 0 0-6.4A3.2 3.2 0 0 0 12 17Z" fill="none" stroke="currentColor" stroke-width="2"/>
+            <path d="M17.2 10.2h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+          <span>camera</span>
         </button>
       </li>
       <li>
