@@ -273,6 +273,13 @@ function resetAttachments(){
   pending = [];
   renderAttachments();
 }
+function vnNoAccent(str = "") {
+  return String(str)
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D");
+}
 
 
 // ====== web search (auto when user asks) ======
