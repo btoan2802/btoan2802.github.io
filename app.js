@@ -25,7 +25,7 @@ const SYSTEM_INSTRUCTION =
   `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
 
 // Giới hạn để tránh request quá nặng (đỡ Failed to fetch do payload)
-const MAX_INLINE_IMAGE_BYTES = 2.8 * 1024 * 1024; // ~2.8MB mỗi ảnh (base64 sẽ phình)
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // ~2.8MB mỗi ảnh (base64 sẽ phình)
 const MAX_TEXT_CHARS_PER_FILE = 12000;
 const MAX_PDF_PAGES = 8;
 
