@@ -367,7 +367,7 @@ async function handleSelectedFiles(files){
       // images
       if (type.startsWith("image/")) {
         if (f.size > MAX_INLINE_IMAGE_BYTES) {
-          addBotBubble(`ảnh "${name}" quá nặng. Hãy chọn ảnh nhỏ hơn (~<2MB).`);
+          addBotBubble(`ảnh "${name}" quá nặng. Hãy chọn ảnh nhỏ hơn (~<5MB).`);
           continue;
         }
         const dataUrl = await fileToDataURL(f);
