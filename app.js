@@ -711,4 +711,4 @@ syncKbd();
 autoGrow();
 
 // hello
-addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn");
+addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn.");
