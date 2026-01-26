@@ -129,12 +129,48 @@ async function copyText(text){
   }
 }
 
-function addUserBubble(text){
+function addUserBubble(text, attachments = []){
   const row = document.createElement("div");
   row.className = "msgrow me";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+
+  const hasText = Boolean(String(text || "").trim());
+  if (hasText) {
+    const t = document.createElement("div");
+    t.className = "usertxt";
+    t.textContent = text;
+    bubble.appendChild(t);
+  }
+
+  if (attachments && attachments.length) {
+    const atWrap = document.createElement("div");
+    atWrap.className = "msgatts";
+
+    for (const at of attachments) {
+      if (at?.kind === "image" && at?.dataB64) {
+        const img = document.createElement("img");
+        img.className = "msgimg";
+        img.alt = at.name || "image";
+        img.src = `data:${at.mimeType || "image/png"};base64,${at.dataB64}`;
+        atWrap.appendChild(img);
+        continue;
+      }
+
+      // non-image: show a simple chip
+      const chip = document.createElement("div");
+      chip.className = "msgfile";
+      chip.textContent = `📎 ${at?.name || "tệp"}`;
+      atWrap.appendChild(chip);
+    }
+
+    bubble.appendChild(atWrap);
+  }
+
+  // if user sent only attachment(s) without text, keep bubble visible
+  if (!hasText && (!attachments || attachments.length === 0)) {
+    bubble.textContent = text;
+  }
   row.appendChild(bubble);
   chatEl.appendChild(row);
   chatEl.scrollTop = chatEl.scrollHeight;
@@ -192,13 +228,40 @@ function addBotBubble(rawText){
 function renderAttachments(){
   if (!attachmentsEl) return;
   attachmentsEl.innerHTML = "";
-  for (const item of pending) {
+
+  pending.forEach((item, index) => {
+    // images: show thumbnail
+    if (item.kind === "image") {
+      const wrap = document.createElement("div");
+      wrap.className = "atimg";
+
+      const img = document.createElement("img");
+      img.alt = item.name || "image";
+      img.src = `data:${item.mimeType || "image/png"};base64,${item.dataB64}`;
+
+      const rm = document.createElement("button");
+      rm.className = "atremove";
+      rm.type = "button";
+      rm.title = "bỏ ảnh";
+      rm.textContent = "×";
+      rm.addEventListener("click", () => {
+        pending.splice(index, 1);
+        renderAttachments();
+      });
+
+      wrap.appendChild(img);
+      wrap.appendChild(rm);
+      attachmentsEl.appendChild(wrap);
+      return;
+    }
+
+    // text/doc: keep chip
     const chip = document.createElement("div");
     chip.className = "atchip";
     chip.title = item.name;
-    chip.textContent = item.kind === "image" ? `🖼️ ${item.name}` : `📄 ${item.name}`;
+    chip.textContent = `📄 ${item.name}`;
     attachmentsEl.appendChild(chip);
-  }
+  });
 }
 
 function resetAttachments(){
@@ -419,14 +482,15 @@ async function handleSelectedFiles(files){
 
 fileImgEl?.addEventListener("change", async () => {
   await handleSelectedFiles(fileImgEl.files);
+  // allow selecting the same file again
+  fileImgEl.value = "";
 });
-
 fileDocEl?.addEventListener("change", async () => {
   await handleSelectedFiles(fileDocEl.files);
+  fileDocEl.value = "";
 });
-
 // ====== Gemini call ======
-async function callGemini(userText){
+async function callGemini(userText, attachments = []){
   // owner override: không cần gọi API
   if (isAboutOwner(userText)) {
     const reply = ownerAnswer();
@@ -458,7 +522,7 @@ async function callGemini(userText){
   parts.push({ text: userText });
 
   // add attachments
-  for (const item of pending) {
+  for (const item of attachments) {
     if (item.kind === "image") {
       parts.push({ inlineData: { mimeType: item.mimeType, data: item.dataB64 } });
     } else {
@@ -506,7 +570,11 @@ async function send(){
   const userText = msgEl.value.trim();
   if (!userText && pending.length === 0) return;
 
-  addUserBubble(userText || "(đính kèm tệp)");
+  // snapshot attachments for this message, then clear composer UI immediately
+  const attachmentsToSend = pending.map(x => ({ ...x }));
+  resetAttachments();
+
+  addUserBubble(userText, attachmentsToSend);
   msgEl.value = "";
   autoGrow();
   sendBtn.disabled = true;
@@ -525,10 +593,9 @@ async function send(){
   chatEl.scrollTop = chatEl.scrollHeight;
 
   try{
-    const reply = await callGemini(userText);
+    const reply = await callGemini(userText, attachmentsToSend);
     typingRow.remove();
     addBotBubble(reply);
-    resetAttachments();
   }catch(e){
     typingRow.remove();
     addBotBubble("lỗi: " + (e?.message || e));
@@ -542,6 +609,34 @@ async function send(){
 }
 
 sendBtn?.addEventListener("click", send);
+// paste images from clipboard (Ctrl+V)
+msgEl?.addEventListener("paste", async (e) => {
+  const items = e.clipboardData?.items;
+  if (!items || !items.length) return;
+
+  const files = [];
+  for (const it of items) {
+    if (it.kind === "file" && (it.type || "").startsWith("image/")) {
+      const f = it.getAsFile();
+      if (!f) continue;
+
+      // some browsers provide an empty name for pasted images
+      if (!f.name) {
+        const ext = (f.type.split("/")[1] || "png").replace(/[^a-z0-9]/gi, "");
+        const named = new File([f], `pasted-${Date.now()}.${ext}`, { type: f.type });
+        files.push(named);
+      } else {
+        files.push(f);
+      }
+    }
+  }
+
+  if (files.length) {
+    e.preventDefault(); // don't paste weird characters into textarea
+    await handleSelectedFiles(files);
+  }
+});
+
 msgEl?.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
