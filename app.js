@@ -4,6 +4,9 @@ const MODEL = "gemini-2.5-flash";
 const TEMPERATURE = 0.7;
 const MAX_OUTPUT_TOKENS = 5000;
 
+// network safety: tránh treo "đang trả lời…" trên mobile khi mạng chập chờn
+const REQUEST_TIMEOUT_MS = 45000; // 45s
+
 // Btoan AI / owner override
 const BOT_NAME = "Btoan AI";
 const OWNER_NAME = "Nguyễn Bảo Toàn";
@@ -26,7 +29,7 @@ const SYSTEM_INSTRUCTION =
   `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
 
 // Giới hạn để tránh request quá nặng (đỡ Failed to fetch do payload)
-const MAX_INLINE_IMAGE_BYTES = 2.8 * 1024 * 1024; // ~2.8MB mỗi ảnh (base64 sẽ phình)
+const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // ~2.8MB mỗi ảnh (base64 sẽ phình)
 const MAX_TEXT_CHARS_PER_FILE = 12000;
 const MAX_PDF_PAGES = 8;
 
@@ -40,9 +43,11 @@ const clearBtn = document.getElementById("clear");
 const scrollBottomBtn = document.getElementById("scrollBottom");
 
 const fileImgEl = document.getElementById("fileImg");
+const fileCamEl = document.getElementById("fileCam");
 const fileDocEl = document.getElementById("fileDoc");
 const plusBtn = document.getElementById("plus");
 const pickImageBtn = document.getElementById("pickImage");
+const pickCameraBtn = document.getElementById("pickCamera");
 const pickFileBtn = document.getElementById("pickFile");
 const attachmentsEl = document.getElementById("attachments");
 
@@ -409,6 +414,12 @@ function openImagePicker(){
   fileImgEl.click();
 }
 
+function openCameraPicker(){
+  if (!fileCamEl) return;
+  fileCamEl.value = "";
+  fileCamEl.click();
+}
+
 function openFilePicker(){
   if (!fileDocEl) return;
   fileDocEl.value = "";
@@ -416,6 +427,7 @@ function openFilePicker(){
 }
 
 pickImageBtn?.addEventListener("click", openImagePicker);
+pickCameraBtn?.addEventListener("click", openCameraPicker);
 pickFileBtn?.addEventListener("click", openFilePicker);
 
 async function handleSelectedFiles(files){
@@ -485,6 +497,10 @@ fileImgEl?.addEventListener("change", async () => {
   // allow selecting the same file again
   fileImgEl.value = "";
 });
+fileCamEl?.addEventListener("change", async () => {
+  await handleSelectedFiles(fileCamEl.files);
+  fileCamEl.value = "";
+});
 fileDocEl?.addEventListener("change", async () => {
   await handleSelectedFiles(fileDocEl.files);
   fileDocEl.value = "";
@@ -536,14 +552,33 @@ async function callGemini(userText, attachments = []){
     systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] }
   };
 
-  const res = await fetch(WORKER_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    mode: "cors",
-    cache: "no-store",
-    referrerPolicy: "no-referrer",
-    body: JSON.stringify({ model: MODEL, payload })
-  });
+  // tránh treo vĩnh viễn khi mạng yếu/đổi app (đặc biệt trên mobile)
+  const controller = (typeof AbortController !== "undefined") ? new AbortController() : null;
+  const timeoutId = controller
+    ? setTimeout(() => {
+        try { controller.abort(); } catch {}
+      }, REQUEST_TIMEOUT_MS)
+    : null;
+
+  let res;
+  try {
+    res = await fetch(WORKER_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      mode: "cors",
+      cache: "no-store",
+      referrerPolicy: "no-referrer",
+      signal: controller?.signal,
+      body: JSON.stringify({ model: MODEL, payload })
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("hết thời gian chờ phản hồi (mạng yếu hoặc proxy bị treo). hãy thử gửi lại.");
+    }
+    throw err;
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
 
   const raw = await res.text();
   let data;
@@ -580,6 +615,7 @@ async function send(){
   sendBtn.disabled = true;
   plusBtn && (plusBtn.disabled = true);
   pickImageBtn && (pickImageBtn.disabled = true);
+  pickCameraBtn && (pickCameraBtn.disabled = true);
   pickFileBtn && (pickFileBtn.disabled = true);
 
   // typing indicator bubble (small)
@@ -593,6 +629,9 @@ async function send(){
   chatEl.scrollTop = chatEl.scrollHeight;
 
   try{
+    if (navigator.onLine === false) {
+      throw new Error("bạn đang tắt mạng/offline. bật mạng rồi gửi lại nhé.");
+    }
     const reply = await callGemini(userText, attachmentsToSend);
     typingRow.remove();
     addBotBubble(reply);
@@ -603,6 +642,7 @@ async function send(){
     sendBtn.disabled = false;
     plusBtn && (plusBtn.disabled = false);
     pickImageBtn && (pickImageBtn.disabled = false);
+    pickCameraBtn && (pickCameraBtn.disabled = false);
     pickFileBtn && (pickFileBtn.disabled = false);
     msgEl.focus();
   }
@@ -711,4 +751,4 @@ syncKbd();
 autoGrow();
 
 // hello
-addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn.");
+addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn");
