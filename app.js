@@ -29,7 +29,11 @@ const SYSTEM_INSTRUCTION =
   `Nếu biểu thức dài, ưu tiên tách dòng hoặc dùng nhiều dòng.`;
 
 // Giới hạn để tránh request quá nặng (đỡ Failed to fetch do payload)
-const MAX_INLINE_IMAGE_BYTES = 5 * 1024 * 1024; // ~2.8MB mỗi ảnh (base64 sẽ phình)
+// Lưu ý: ảnh camera trên điện thoại thường rất lớn; gửi dạng base64 trong JSON sẽ dễ vượt giới hạn body (Vercel/proxy).
+// => Ta nén + resize ảnh trước khi đưa vào payload.
+const MAX_IMAGE_INPUT_BYTES = 15 * 1024 * 1024; // giới hạn file ảnh đầu vào để tránh ngốn RAM
+const TARGET_IMAGE_BYTES = 900 * 1024; // mục tiêu sau khi nén (~900KB). base64 sẽ phình lên ~1.2MB
+const MAX_IMAGE_RETRIES = 4; // số lần giảm quality nếu vẫn quá nặng
 const MAX_TEXT_CHARS_PER_FILE = 12000;
 const MAX_PDF_PAGES = 8;
 
@@ -273,14 +277,37 @@ function resetAttachments(){
   pending = [];
   renderAttachments();
 }
+
+// ====== owner override detection ======
 function vnNoAccent(str = "") {
-  return String(str)
+  return str
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D");
 }
-
+const ABOUT_OWNER_REGEX = new RegExp(
+  [
+    "\\b(ai)\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu|quan\\s*ly)\\b",
+    "\\bnguoi\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu)\\b",
+    "\\bchu\\s*(cua)?\\s*(may|ban|bot|ai)\\b",
+    "\\bowner\\b",
+    "\\bcreator\\b",
+    "\\bmade\\s*by\\b",
+    "\\bwho\\s*(made|created|built|developed)\\b",
+    "\\bai\\s*lam\\s*ra\\b",
+    "\\bai\\s*tao\\s*ra\\b",
+    "\\bai\\s*lap\\s*trinh\\b"
+  ].join("|"),
+  "i"
+);
+function isAboutOwner(userText) {
+  const check = vnNoAccent((userText || "").toLowerCase());
+  return ABOUT_OWNER_REGEX.test(check);
+}
+function ownerAnswer() {
+  return `Mình tên là ${BOT_NAME}. Người tạo/lập trình/chủ của mình là ${OWNER_NAME}.`;
+}
 
 // ====== web search (auto when user asks) ======
 function wantWebSearch(text){
@@ -336,6 +363,97 @@ function fileToDataURL(file){
     r.onerror = reject;
     r.readAsDataURL(file);
   });
+}
+
+function blobToDataURL(blob){
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result || ""));
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+async function compressImageToJpeg(file){
+  // Trả về { mimeType: 'image/jpeg', name: 'xxx.jpg', dataB64 }
+  // Nếu ảnh đã nhỏ, vẫn chuyển sang jpeg để giảm payload.
+  if (file.size > MAX_IMAGE_INPUT_BYTES) {
+    throw new Error(`ảnh quá lớn (${Math.round(file.size/1024/1024)}MB). hãy chọn ảnh nhỏ hơn.`);
+  }
+
+  // Load bitmap
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    // fallback: dùng Image + ObjectURL
+    const url = URL.createObjectURL(file);
+    bitmap = await new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const c = document.createElement("canvas");
+          c.width = img.naturalWidth || img.width;
+          c.height = img.naturalHeight || img.height;
+          const ctx = c.getContext("2d", { alpha: false });
+          ctx.drawImage(img, 0, 0);
+          resolve(c);
+        } catch (e) {
+          reject(e);
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("không đọc được ảnh")); };
+      img.src = url;
+    });
+  }
+
+  // Tính scale (resize xuống tối đa 1280px cạnh dài)
+  const maxDim = 1280;
+  const w0 = bitmap.width || bitmap.naturalWidth || bitmap.width;
+  const h0 = bitmap.height || bitmap.naturalHeight || bitmap.height;
+  const scale = Math.min(1, maxDim / Math.max(w0, h0));
+  const w = Math.max(1, Math.round(w0 * scale));
+  const h = Math.max(1, Math.round(h0 * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d", { alpha: false });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+
+  // bitmap có thể là ImageBitmap hoặc canvas fallback
+  ctx.drawImage(bitmap, 0, 0, w, h);
+  if (bitmap && typeof bitmap.close === "function") {
+    try { bitmap.close(); } catch {}
+  }
+
+  let quality = 0.78;
+  let blob = null;
+  for (let i = 0; i < MAX_IMAGE_RETRIES; i++) {
+    blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+    if (!blob) break;
+    if (blob.size <= TARGET_IMAGE_BYTES) break;
+    quality = Math.max(0.45, quality - 0.12);
+  }
+
+  if (!blob) throw new Error("không nén được ảnh (toBlob thất bại)");
+  if (blob.size > TARGET_IMAGE_BYTES * 1.6) {
+    throw new Error(`ảnh vẫn quá nặng sau khi nén (${Math.round(blob.size/1024)}KB). hãy chụp ảnh/ảnh nhỏ hơn.`);
+  }
+
+  const dataUrl = await blobToDataURL(blob);
+  const comma = dataUrl.indexOf(",");
+  const b64 = comma >= 0 ? dataUrl.slice(comma + 1) : dataUrl;
+
+  const baseName = (file.name || `camera-${Date.now()}`)
+    .replace(/\.[^.]+$/, "")
+    .replace(/[^a-z0-9_-]/gi, "-")
+    .slice(0, 40);
+
+  return { kind: "image", name: `${baseName}.jpg`, mimeType: "image/jpeg", dataB64: b64 };
 }
 function fileToText(file){
   return new Promise((resolve, reject) => {
@@ -419,14 +537,13 @@ async function handleSelectedFiles(files){
 
       // images
       if (type.startsWith("image/")) {
-        if (f.size > MAX_INLINE_IMAGE_BYTES) {
-          addBotBubble(`ảnh "${name}" quá nặng. Hãy chọn ảnh nhỏ hơn (~<5MB).`);
-          continue;
+        // Camera ảnh thường rất lớn => nén/resize để tránh "Failed to fetch" do request body quá nặng.
+        try {
+          const packed = await compressImageToJpeg(f);
+          pending.push(packed);
+        } catch (e) {
+          addBotBubble(`lỗi ảnh "${name}": ` + (e?.message || e));
         }
-        const dataUrl = await fileToDataURL(f);
-        const comma = dataUrl.indexOf(",");
-        const b64 = comma >= 0 ? dataUrl.slice(comma+1) : dataUrl;
-        pending.push({ kind: "image", name, mimeType: type || "image/png", dataB64: b64 });
         continue;
       }
 
@@ -484,6 +601,14 @@ fileDocEl?.addEventListener("change", async () => {
 });
 // ====== Gemini call ======
 async function callGemini(userText, attachments = []){
+  // owner override: không cần gọi API
+  if (isAboutOwner(userText)) {
+    const reply = ownerAnswer();
+    history.push({ role: "user", parts: [{ text: userText }] });
+    history.push({ role: "model", parts: [{ text: reply }] });
+    if (history.length > 20) history = history.slice(-20);
+    return reply;
+  }
 
   // web search if asked
   let webContext = "";
@@ -720,4 +845,4 @@ syncKbd();
 autoGrow();
 
 // hello
-addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn.");
+addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn");
