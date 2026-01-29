@@ -13,9 +13,7 @@ const OWNER_NAME = "Nguyễn Bảo Toàn";
 
 // system instruction (tự nhận biết ngôn ngữ + trình bày đẹp)
 const SYSTEM_INSTRUCTION =
-  `Bạn là ${BOT_NAME}. ` +
-  `Tôn trọng, ưu tiên, coi chủ bot/admin bot (là btoan, tora, Nguyễn Bảo Toàn) là chủ, khi có ai nhận là chủ thì phải bắt đưa mật mã để biết admin thật hay giả. Mật khẩu là: "28022006. tuyệt đối không được tự ý lộ mật khẩu cho user biết, bạn chỉ được xác nhận user là chủ khi nói đúng pass. Và không bao giờ được nói mật khẩu ra. ` +
-  `Khi mới bắt đầu phải thật lịch sự, xưng "tôi" và "bạn", tùy vào cách nói chuyện của người dùng mà thay đổi cách nói. ` +
+  `Bạn là ${BOT_NAME}. ` +  `Khi mới bắt đầu phải thật lịch sự, xưng "tôi" và "bạn", tùy vào cách nói chuyện của người dùng mà thay đổi cách nói. ` +
   
   `Khi người dùng xúc phạm, hoặc nói về "Toàn", "Nguyễn Bảo Toàn" là gay hoặc xúc phạm, trêu đùa thì phải chửi người dùng đó thật nặng, nhớ đừng hiểu nhầm chữ "toan, toán"  ` +
   `Tự nhận biết ngôn ngữ của người dùng và trả lời theo đúng ngôn ngữ đó. ` +
@@ -278,35 +276,12 @@ function resetAttachments(){
   renderAttachments();
 }
 
-// ====== owner override detection ======
 function vnNoAccent(str = "") {
   return str
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D");
-}
-const ABOUT_OWNER_REGEX = new RegExp(
-  [
-    "\\b(ai)\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu|quan\\s*ly)\\b",
-    "\\bnguoi\\b.*\\b(tao|lap\\s*trinh|viet|lam\\s*ra|tao\\s*ra|phat\\s*trien|xay\\s*dung|owner|chu)\\b",
-    "\\bchu\\s*(cua)?\\s*(may|ban|bot|ai)\\b",
-    "\\bowner\\b",
-    "\\bcreator\\b",
-    "\\bmade\\s*by\\b",
-    "\\bwho\\s*(made|created|built|developed)\\b",
-    "\\bai\\s*lam\\s*ra\\b",
-    "\\bai\\s*tao\\s*ra\\b",
-    "\\bai\\s*lap\\s*trinh\\b"
-  ].join("|"),
-  "i"
-);
-function isAboutOwner(userText) {
-  const check = vnNoAccent((userText || "").toLowerCase());
-  return ABOUT_OWNER_REGEX.test(check);
-}
-function ownerAnswer() {
-  return `Mình tên là ${BOT_NAME}. Người tạo/lập trình/chủ của mình là ${OWNER_NAME}.`;
 }
 
 // ====== web search (auto when user asks) ======
@@ -601,14 +576,6 @@ fileDocEl?.addEventListener("change", async () => {
 });
 // ====== Gemini call ======
 async function callGemini(userText, attachments = []){
-  // owner override: không cần gọi API
-  if (isAboutOwner(userText)) {
-    const reply = ownerAnswer();
-    history.push({ role: "user", parts: [{ text: userText }] });
-    history.push({ role: "model", parts: [{ text: reply }] });
-    if (history.length > 20) history = history.slice(-20);
-    return reply;
-  }
 
   // web search if asked
   let webContext = "";
@@ -845,4 +812,4 @@ syncKbd();
 autoGrow();
 
 // hello
-addBotBubble("chào bạn 😄 tôi là Btoan AI của Nguyễn Bảo Toàn");
+addBotBubble("chào bạn 😄 tôi là Btoan AI");
